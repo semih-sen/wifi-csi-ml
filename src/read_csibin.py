@@ -2,6 +2,20 @@
 """
 read_csibin.py — loader for CsiRadar `.csibin` recording sessions.
 
+╔════════════════════════════════════════════════════════════════════════════╗
+║ PROVENANCE (Seam A). This is a VENDORED COPY of                              ║
+║   wifi-csi-backend/tools/read_csibin.py                                      ║
+║ The two files MUST stay byte-identical. The binary layout below is the       ║
+║ contract of record in /CONTRACTS.md (Seam A). `_FORMAT_VERSION` is asserted  ║
+║ on load: bump the backend writer's format version and this side fails loudly ║
+║ instead of silently misreading.                                              ║
+║                                                                              ║
+║ `window_stream()` MUST reproduce the backend's                              ║
+║ CsiRingBuffer.SnapshotSubcarrierMajor bit-for-bit (subcarrier-major          ║
+║ [subcarrier, time]). That identity is the train/serve invariant — do not     ║
+║ change the windowing here without changing it there.                         ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
 A session is two files written by the backend RecordingBackgroundService:
   <stem>.csibin   little-endian binary payload (header + frames)
   <stem>.json     manifest (label, frame count, filter params, integrity flags)
@@ -53,6 +67,9 @@ from dataclasses import dataclass
 import numpy as np
 
 _MAGIC = b"CSI1"
+# Binary format version the backend writer stamps (CsiRecordingFileWriter). Asserted
+# on load so a format bump (csibin-v2) breaks here loudly — see PROVENANCE above.
+_FORMAT_VERSION = 1
 
 
 @dataclass
@@ -95,8 +112,11 @@ def load_session(path: str) -> Session:
         raise ValueError(f"bad magic {magic!r}; not a csibin file")
 
     (version,) = take("i")
-    if version != 1:
-        raise ValueError(f"unsupported format version {version}")
+    if version != _FORMAT_VERSION:
+        raise ValueError(
+            f"unsupported .csibin format version {version} (expected {_FORMAT_VERSION}). "
+            "This reader is vendored from the backend; re-sync read_csibin.py."
+        )
 
     (sc,) = take("i")
     (fs,) = take("d")
