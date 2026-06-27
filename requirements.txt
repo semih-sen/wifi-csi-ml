@@ -1,0 +1,9 @@
+# PyTorch is installed separately with the CUDA wheel index, e.g.:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu121
+# (see README §2). It is intentionally NOT pinned here so the CUDA build wins.
+numpy>=1.26
+scikit-learn>=1.4
+onnx>=1.16
+onnxruntime>=1.18
+tqdm>=4.66
+matplotlib>=3.8

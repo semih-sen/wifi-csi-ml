@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//e/dev/wifi/**)",
+      "Read(//e/dev/**)",
+      "Bash(python -c \"import torch, sklearn, onnx, onnxruntime, numpy; print\\('torch', torch.__version__, 'cuda', torch.cuda.is_available\\(\\)\\); print\\('deps OK'\\)\")"
+    ]
+  }
+}
