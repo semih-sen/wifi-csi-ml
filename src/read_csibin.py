@@ -39,12 +39,14 @@ Binary layout (little-endian), mirrors CsiRecordingFileWriter:
 
   HEADER
     magic            4  bytes  = b"CSI1"
-    formatVersion    int32
+    formatVersion    int32     (1 or 2)
     subcarrierCount  int32
     sampleRateHz     float64
     captureRaw       uint8     (0/1)
     labelLength      int32
     label            labelLength UTF-8 bytes
+    subjectLength    int32     (v2+) — who performed the activity
+    subject          subjectLength UTF-8 bytes (v2+)
     sessionId        int64
     startedAtUnixMs  int64
 
@@ -67,14 +69,17 @@ from dataclasses import dataclass
 import numpy as np
 
 _MAGIC = b"CSI1"
-# Binary format version the backend writer stamps (CsiRecordingFileWriter). Asserted
-# on load so a format bump (csibin-v2) breaks here loudly — see PROVENANCE above.
-_FORMAT_VERSION = 1
+# Binary format versions the backend writer stamps (CsiRecordingFileWriter):
+#   1 — original layout
+#   2 — adds the `subject` (who performed the activity) to the header, after the label
+# Reading is backward-compatible across this set; anything outside it fails loudly.
+_SUPPORTED_VERSIONS = (1, 2)
 
 
 @dataclass
 class Session:
     label: str
+    subject: str                # who performed the activity ("" for v1 files / N/A)
     session_id: int
     subcarrier_count: int
     sample_rate_hz: float
@@ -112,9 +117,9 @@ def load_session(path: str) -> Session:
         raise ValueError(f"bad magic {magic!r}; not a csibin file")
 
     (version,) = take("i")
-    if version != _FORMAT_VERSION:
+    if version not in _SUPPORTED_VERSIONS:
         raise ValueError(
-            f"unsupported .csibin format version {version} (expected {_FORMAT_VERSION}). "
+            f"unsupported .csibin format version {version} (supported: {_SUPPORTED_VERSIONS}). "
             "This reader is vendored from the backend; re-sync read_csibin.py."
         )
 
@@ -124,6 +129,12 @@ def load_session(path: str) -> Session:
     capture_raw = bool(capture_raw)
     (label_len,) = take("i")
     label = buf[off:off + label_len].decode("utf-8"); off += label_len
+
+    subject = ""
+    if version >= 2:
+        (subject_len,) = take("i")
+        subject = buf[off:off + subject_len].decode("utf-8"); off += subject_len
+
     (session_id,) = take("q")
     (started_ms,) = take("q")
 
@@ -134,7 +145,7 @@ def load_session(path: str) -> Session:
         rec = np.dtype([("ts", "<i8"), ("rssi", "<i4"), ("amp", "<f4", (sc,))])
         body = np.frombuffer(buf, dtype=rec, offset=off)
         return Session(
-            label=label, session_id=session_id, subcarrier_count=sc,
+            label=label, subject=subject, session_id=session_id, subcarrier_count=sc,
             sample_rate_hz=fs, capture_raw=False, started_at_unix_ms=started_ms,
             timestamps_ms=body["ts"].copy(),
             rssi=body["rssi"].copy(),
@@ -179,5 +190,6 @@ if __name__ == "__main__":
         print("usage: read_csibin.py <session.json | session.csibin>")
         raise SystemExit(2)
     s = load_session(sys.argv[1])
-    print(f"label={s.label!r} session={s.session_id} frames={s.amplitudes.shape[0]} "
-          f"subcarriers={s.subcarrier_count} fs={s.sample_rate_hz}Hz raw={s.capture_raw}")
+    print(f"label={s.label!r} subject={s.subject!r} session={s.session_id} "
+          f"frames={s.amplitudes.shape[0]} subcarriers={s.subcarrier_count} "
+          f"fs={s.sample_rate_hz}Hz raw={s.capture_raw}")

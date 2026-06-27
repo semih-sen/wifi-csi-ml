@@ -39,6 +39,8 @@ class Dataset:
     X: np.ndarray            # float32 [N, 64, time]  RAW filtered windows (NOT normalized)
     y: np.ndarray            # int64   [N]            label index into `classes`
     groups: np.ndarray       # int64   [N]            source sessionId (split group key)
+    subjects: np.ndarray     # str     [N]            who performed it ("" when N/A) — for
+                             #                          person/gait recognition; NOT a train target here
     classes: list[str]       # output-index -> class name (the single source of truth)
     window_size: int
     slide_step: int
@@ -86,8 +88,13 @@ def build_dataset(recordings_dir: str = RECORDINGS_DIR,
         )
 
     ref: dict | None = None
-    X_parts, labels, groups = [], [], []
+    X_parts, labels, groups, subjects = [], [], [], []
     kept, dropped = [], []
+    # Unique per-recording group key for the session-level split. We do NOT use the
+    # manifest sessionId: the backend resets its session counter on restart, so two
+    # physically different recordings can share sessionId (e.g. 000001_EmptyRoom and
+    # 000001_Walking) — grouping by it would leak/merge recordings across the split.
+    next_group = 0
 
     for mpath in manifests:
         with open(mpath, "r", encoding="utf-8") as f:
@@ -110,8 +117,11 @@ def build_dataset(recordings_dir: str = RECORDINGS_DIR,
 
         X_parts.append(windows.astype(np.float32, copy=False))
         labels.extend([meta["label"]] * windows.shape[0])
-        groups.extend([sess.session_id] * windows.shape[0])
-        kept.append((os.path.basename(mpath), meta["label"], sess.session_id, windows.shape[0]))
+        groups.extend([next_group] * windows.shape[0])
+        subjects.extend([meta.get("subject", "")] * windows.shape[0])
+        kept.append((os.path.basename(mpath), meta["label"],
+                     meta.get("subject", ""), sess.session_id, windows.shape[0]))
+        next_group += 1
 
     if not X_parts:
         raise RuntimeError(
@@ -122,6 +132,7 @@ def build_dataset(recordings_dir: str = RECORDINGS_DIR,
     X = np.concatenate(X_parts, axis=0)
     labels = np.asarray(labels)
     groups = np.asarray(groups, dtype=np.int64)
+    subjects = np.asarray(subjects)
 
     if classes is None:
         classes = sorted(set(labels.tolist()))
@@ -135,14 +146,15 @@ def build_dataset(recordings_dir: str = RECORDINGS_DIR,
 
     # Report what survived gating — this matters more than accuracy at smoke-test time.
     print(f"[dataset] kept {len(kept)} session(s), dropped {len(dropped)}")
-    for name, label, sid, n in kept:
-        print(f"    keep  {name}  label={label!r} session={sid} windows={n}")
+    for name, label, subject, sid, n in kept:
+        who = f" subject={subject!r}" if subject else ""
+        print(f"    keep  {name}  label={label!r}{who} session={sid} windows={n}")
     for name, reason in dropped:
         print(f"    DROP  {name}  -> {reason}")
     print(f"[dataset] X={X.shape} classes={classes} baselineApplied={ref['baselineApplied']}")
 
     return Dataset(
-        X=X, y=y, groups=groups, classes=classes,
+        X=X, y=y, groups=groups, subjects=subjects, classes=classes,
         window_size=ref["windowSize"], slide_step=ref["slideStep"],
         sample_rate_hz=ref["sampleRateHz"], baseline_applied=ref["baselineApplied"],
     )
@@ -154,3 +166,5 @@ if __name__ == "__main__":
     print("[dataset] per-class window counts:",
           {ds.classes[i]: int(c) for i, c in zip(uniq, counts)})
     print("[dataset] sessions:", np.unique(ds.groups).tolist())
+    print("[dataset] subjects:", np.unique(ds.subjects).tolist(),
+          "(exposed for person/gait recognition; not a training target here)")

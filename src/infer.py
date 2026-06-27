@@ -72,8 +72,9 @@ def main() -> int:
         print(f"[infer] session has too few frames ({sess.amplitudes.shape[0]}) "
               f"for a {EXPECTED_WINDOW}-frame window.")
         return 2
-    print(f"[infer] session label={sess.label!r} frames={sess.amplitudes.shape[0]} "
-          f"windows={windows.shape[0]} (each {windows.shape[1]}×{windows.shape[2]})")
+    print(f"[infer] session label={sess.label!r} subject={sess.subject!r} "
+          f"frames={sess.amplitudes.shape[0]} windows={windows.shape[0]} "
+          f"(each {windows.shape[1]}×{windows.shape[2]})")
 
     ort_sess = ort.InferenceSession(ONNX_PATH, providers=["CPUExecutionProvider"])
     in_name = ort_sess.get_inputs()[0].name
